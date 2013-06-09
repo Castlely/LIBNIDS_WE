@@ -2,7 +2,7 @@
    Copyright (c) 1999 Rafal Wojtczuk <nergal@7bulls.com>. All rights reserved.
    See the file COPYING for license details.
  */
-
+#define _GNU_SOURCE
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>

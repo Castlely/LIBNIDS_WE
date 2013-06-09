@@ -67,6 +67,26 @@
           </cTool>
         </makeTool>
       </makefileType>
+      <item path="allpromisc.c" ex="false" tool="0" flavor2="2">
+        <cTool>
+        </cTool>
+      </item>
+      <item path="hash.c" ex="false" tool="0" flavor2="2">
+        <cTool>
+        </cTool>
+      </item>
+      <item path="scan.c" ex="false" tool="0" flavor2="2">
+        <cTool>
+        </cTool>
+      </item>
+      <item path="tcp.c" ex="false" tool="0" flavor2="2">
+        <cTool>
+        </cTool>
+      </item>
+      <item path="util.c" ex="false" tool="0" flavor2="2">
+        <cTool>
+        </cTool>
+      </item>
     </conf>
   </confs>
 </configurationDescriptor>

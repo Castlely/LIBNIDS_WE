@@ -10,7 +10,7 @@ in order to improve readability, some simplifications were made, which enables
 an attacker to bypass this code (note, the below routines should be improved, 
 not libnids)
 */  
-
+#define _GNU_SOURCE
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>

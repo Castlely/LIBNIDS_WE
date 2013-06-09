@@ -1,23 +1,44 @@
 /*
 Copyright (c) 1999 Rafal Wojtczuk <nergal@7bulls.com>. All rights reserved.
 See the file COPYING for license details.
+
+
+#define _GNU_SOURCE
+#include <stdio.h>
+ * 
+#include <unistd.h>
+
+#include <sched.h>
+
 */
-
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/in_systm.h>
 #include <arpa/inet.h>
 #include <string.h>
-#include <stdio.h>
+
 #include "nids.h"
-
+/*
+#define __USE_GNU 
+#include <unistd.h>
+#include <sched.h>  */
 #define int_ntoa(x)	inet_ntoa(*((struct in_addr *)&x))
-
+#define __USE_GNU
+#include <unistd.h>
+#include <sched.h> 
+#include <stdio.h>
 // struct tuple4 contains addresses and port numbers of the TCP connections
 // the following auxiliary function produces a string looking like
 // 10.0.0.1,1024,10.0.0.2,23
+//---------------------------------------------------------------------------------
+ FILE *myfp[8];
+// FILE *myfp100;
+ char mystrtest[10]="hashtest ";
+ int test[8];
+ int testinput;
+//---------------------------------------------------------------------------------
+ 
 char *
 adres (struct tuple4 addr)
 {
@@ -30,9 +51,40 @@ adres (struct tuple4 addr)
 }
 
 void
-tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed)
+tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed,int FIFO_NO)
 {
   char buf[1024];
+  test[FIFO_NO]++;
+  int i=0,j=0;
+  
+  char t[100001]="thisstringisveryverylongdgdsfsdfgdsfgdsfhawrhtyueyueryrtywertewrt";
+	char s[100001]="jghjklsfeegdfgdfkjhsfefsdfsrghiuduhgidurigurhkgdfhasgkjfgdjfhgry";
+	char *pt=t,*ps=s;
+	t[0]=0;
+	s[0]=0;
+
+        for(i=0,pt=t,ps=s;i<100000000;i++)
+            while(*ps!='\0')
+            {
+                    while(*pt!='\0')
+                    {
+                            if(*pt==*ps)
+                                    {
+                                            ps++;
+                                            pt++;
+                                            break;
+                                    }
+                            pt++;
+                    }
+                    if(*pt=='\0')
+                            break;
+            }
+  
+  /*for(;i<1000000000;i++)
+  {
+      j=j&i;
+  }*/
+  
   strcpy (buf, adres (a_tcp->addr)); // we put conn params into buf
   if (a_tcp->nids_state == NIDS_JUST_EST)
     {
@@ -49,19 +101,19 @@ tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed)
                                    // we won't be notified of urgent data
                                    // arrival
 #endif
-      fprintf (stderr, "%s established\n", buf);
+      //fprintf (myfp[FIFO_NO], "%s established\n", buf);
       return;
     }
   if (a_tcp->nids_state == NIDS_CLOSE)
     {
       // connection has been closed normally
-      fprintf (stderr, "%s closing\n", buf);
+      //fprintf (myfp[FIFO_NO], "%s closing\n", buf);
       return;
     }
   if (a_tcp->nids_state == NIDS_RESET)
     {
       // connection has been closed by RST
-      fprintf (stderr, "%s reset\n", buf);
+      //fprintf (myfp[FIFO_NO], "%s reset\n", buf);
       return;
     }
 
@@ -77,8 +129,8 @@ tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed)
         // new byte of urgent data has arrived 
         strcat(buf,"(urgent->)");
         buf[strlen(buf)+1]=0;
-        buf[strlen(buf)]=a_tcp->server.urgdata;
-        write(1,buf,strlen(buf));
+        //buf[strlen(buf)]=a_tcp->server.urgdata;
+        //write(1,buf,strlen(buf));
         return;
       }
       // We don't have to check if urgent data to client has arrived,
@@ -96,11 +148,11 @@ tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed)
 	  hlf = &a_tcp->server; // analogical
 	  strcat (buf, "(->)");
 	}
-    fprintf(stderr,"%s",buf); // we print the connection parameters
+    //fprintf(myfp[FIFO_NO],"%s\n",buf); // we print the connection parameters
                               // (saddr, daddr, sport, dport) accompanied
                               // by data flow direction (-> or <-)
 
-   write(2,hlf->data,hlf->count_new); // we print the newly arrived data
+   //write(2,hlf->data,hlf->count_new); // we print the newly arrived data
       
     }
   return ;
@@ -109,21 +161,28 @@ tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed)
 int 
 main ()
 {
+    int i;
+   testinput=0;
+        for(i=0;i<8;i++)
+       {
+            test[i]=0;
+            myfp[i]=NULL;
+           mystrtest[8]=i+'0';
+           if(!(myfp[i]=fopen(mystrtest,"w+")))
+               fprintf(stderr,"打开文件错误\n");
+       }
+   // if(!(myfp100=fopen("test100","w+")))
+   //            fprintf(stderr,"打开文件错误\n");
+      
+        //nids_params.device="lo";
+        nids_params.device="lo";
+	struct nids_chksum_ctl ct1;
+	ct1.netaddr=000000;
+	ct1.mask=0;
+	ct1.action=1;
+	nids_register_chksum_ctl(&ct1,1);
   // here we can alter libnids params, for instance:
   // nids_params.n_hosts=256;
-	nids_params.device="wlan0";
-
-	struct nids_chksum_ctl temp;
-
-	temp.netaddr = 0;
-
-	temp.mask = 0;
-
-	temp.action =  NIDS_DONT_CHKSUM;
-	nids_register_chksum_ctl(&temp,1); //shuzu changdu 1
-	//nids_params.filename="";///home/feng/test.txt";
-
-
   if (!nids_init ())
   {
   	fprintf(stderr,"%s\n",nids_errbuf);
@@ -131,5 +190,10 @@ main ()
   }
   nids_register_tcp (tcp_callback);
   nids_run ();
+   for(i=0;i<8;i++)
+       {
+           fclose(myfp[i]);
+       }
+     
   return 0;
 }

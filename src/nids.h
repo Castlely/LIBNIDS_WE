@@ -20,6 +20,12 @@ extern "C" {
 # define NIDS_MAJOR 1
 # define NIDS_MINOR 24
 
+# define CPU_SET(cpu, cpusetp)   __CPU_SET_S (cpu, sizeof (cpu_set_t), cpusetp)  
+# define CPU_CLR(cpu, cpusetp)   __CPU_CLR_S (cpu, sizeof (cpu_set_t), cpusetp)  
+# define CPU_ISSET(cpu, cpusetp) __CPU_ISSET_S (cpu, sizeof (cpu_set_t),cpusetp)  
+# define CPU_ZERO(cpusetp)   __CPU_ZERO_S (sizeof (cpu_set_t), cpusetp)      
+   #define __USE_GNU
+#include <sched.h> 
 enum
 {
   NIDS_WARN_IP = 1,

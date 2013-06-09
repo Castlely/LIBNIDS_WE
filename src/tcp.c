@@ -14,6 +14,7 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/ip_icmp.h>
+#include <ctype.h>
 
 #include "checksum.h"
 #include "scan.h"
@@ -66,17 +67,6 @@ static struct ip *ugly_iphdr;
 //
 struct tcp_timeout *nids_tcp_timeouts[FIFO_max_num];
 
-int myhash(u_char * data)
-{
-	struct ip *this_iphdr = (struct ip *)data;
-        struct tcphdr *this_tcphdr = (struct tcphdr *)(data + 4 * this_iphdr->ip_hl);
-	int hash;
-	//this_iphdr->ip_src.s_addr; this_iphdr->ip_dst.s_addr;  32Î»µØÖ·
-	//this_tcphdr->source; this_tcphdr->dest; 16Î»¶Ë¿ÚºÅ + this_tcphdr->source + this_tcphdr->dest
-	//hash=(htonl(this_iphdr->ip_src.s_addr) + htonl(this_iphdr->ip_dst.s_addr) )%cpu_num;
-        hash=0;
-	return hash;
-}
 
 static void purge_queue(struct half_stream * h)
 {
@@ -196,7 +186,7 @@ tcp_check_timeouts(struct timeval *now,int FIFO_NO)
       return;
     to->a_tcp->nids_state = NIDS_TIMED_OUT;
     for (i = to->a_tcp->listeners; i; i = i->next)
-      (i->item) (to->a_tcp, &i->data);
+      (i->item) (to->a_tcp, &i->data,FIFO_NO);
     next = to->next;
     nids_free_tcp_stream(to->a_tcp,FIFO_NO);
   }
@@ -288,7 +278,7 @@ add_new_tcp(struct tcphdr * this_tcphdr, struct ip * this_iphdr,int FIFO_NO)
     int orig_client_state=HP_params[FIFO_NO].tcp_oldest->client.state;
     HP_params[FIFO_NO].tcp_oldest->nids_state = NIDS_TIMED_OUT;
     for (i = HP_params[FIFO_NO].tcp_oldest->listeners; i; i = i->next)
-      (i->item) (HP_params[FIFO_NO].tcp_oldest, &i->data);
+      (i->item) (HP_params[FIFO_NO].tcp_oldest, &i->data,FIFO_NO);
     nids_free_tcp_stream(HP_params[FIFO_NO].tcp_oldest,FIFO_NO);
     if (orig_client_state!=TCP_SYN_SENT)
       nids_params.syslog(NIDS_WARN_TCP, NIDS_WARN_TCP_TOOMUCH, HP_params[FIFO_NO].ugly_iphdr, this_tcphdr);
@@ -357,7 +347,7 @@ add2buf(struct half_stream * rcv, char *data, int datalen)
 }
 
 static void
-ride_lurkers(struct tcp_stream * a_tcp, char mask)
+ride_lurkers(struct tcp_stream * a_tcp, char mask,int FIFO_NO)
 {
   struct lurker_node *i;
   char cc, sc, ccu, scu;
@@ -369,7 +359,7 @@ ride_lurkers(struct tcp_stream * a_tcp, char mask)
       ccu = a_tcp->client.collect_urg;
       scu = a_tcp->server.collect_urg;
 
-      (i->item) (a_tcp, &i->data);
+      (i->item) (a_tcp, &i->data,FIFO_NO);
       if (cc < a_tcp->client.collect)
 	i->whatto |= COLLECT_cc;
       if (ccu < a_tcp->client.collect_urg)
@@ -390,7 +380,7 @@ ride_lurkers(struct tcp_stream * a_tcp, char mask)
 }
 
 static void
-notify(struct tcp_stream * a_tcp, struct half_stream * rcv)
+notify(struct tcp_stream * a_tcp, struct half_stream * rcv,int FIFO_NO)
 {
   struct lurker_node *i, **prev_addr;
   char mask;
@@ -402,7 +392,7 @@ notify(struct tcp_stream * a_tcp, struct half_stream * rcv)
       mask = COLLECT_ccu;
     else
       mask = COLLECT_scu;
-    ride_lurkers(a_tcp, mask);
+    ride_lurkers(a_tcp, mask,FIFO_NO);
     goto prune_listeners;
   }
   if (rcv->collect) {
@@ -415,7 +405,7 @@ notify(struct tcp_stream * a_tcp, struct half_stream * rcv)
 		a_tcp->read = rcv->count - rcv->offset;
 		  total=a_tcp->read;
   
-	    ride_lurkers(a_tcp, mask);
+	    ride_lurkers(a_tcp, mask,FIFO_NO);
 	    if (a_tcp->read>total-rcv->count_new)
 	    	rcv->count_new=total-a_tcp->read;
 	    
@@ -462,7 +452,7 @@ add_from_skb(struct tcp_stream * a_tcp, struct half_stream * rcv,
     if (to_copy > 0) {
       if (rcv->collect) {
 	add2buf(rcv, (char *)(data + lost), to_copy);
-	notify(a_tcp, rcv);
+	notify(a_tcp, rcv,FIFO_NO);
       }
       else {
 	rcv->count += to_copy;
@@ -471,7 +461,7 @@ add_from_skb(struct tcp_stream * a_tcp, struct half_stream * rcv,
     }
     rcv->urgdata = data[rcv->urg_ptr - this_seq];
     rcv->count_new_urg = 1;
-    notify(a_tcp, rcv);
+    notify(a_tcp, rcv,FIFO_NO);
     rcv->count_new_urg = 0;
     rcv->urg_seen = 0;
     rcv->urg_count++;
@@ -479,7 +469,7 @@ add_from_skb(struct tcp_stream * a_tcp, struct half_stream * rcv,
     if (to_copy2 > 0) {
       if (rcv->collect) {
 	add2buf(rcv, (char *)(data + lost + to_copy + 1), to_copy2);
-	notify(a_tcp, rcv);
+	notify(a_tcp, rcv,FIFO_NO);
       }
       else {
 	rcv->count += to_copy2;
@@ -491,7 +481,7 @@ add_from_skb(struct tcp_stream * a_tcp, struct half_stream * rcv,
     if (datalen - lost > 0) {
       if (rcv->collect) {
 	add2buf(rcv, (char *)(data + lost), datalen - lost);
-	notify(a_tcp, rcv);
+	notify(a_tcp, rcv,FIFO_NO);
       }
       else {
 	rcv->count += datalen - lost;
@@ -706,7 +696,7 @@ void tcp_exit(int FIFO_NO)
       a_tcp = a_tcp->next_node;
       for (j = t_tcp->listeners; j; j = j->next) {
           t_tcp->nids_state = NIDS_EXITING;
-	  (j->item)(t_tcp, &j->data);
+	  (j->item)(t_tcp, &j->data,FIFO_NO);
       }
       nids_free_tcp_stream(t_tcp,FIFO_NO);
     }
@@ -825,7 +815,7 @@ process_tcp(u_char * data, int skblen,int FIFO_NO)
 
       a_tcp->nids_state = NIDS_RESET;
       for (i = a_tcp->listeners; i; i = i->next)
-	(i->item) (a_tcp, &i->data);
+	(i->item) (a_tcp, &i->data,FIFO_NO);
     }
     nids_free_tcp_stream(a_tcp,FIFO_NO);
     return;
@@ -856,7 +846,7 @@ process_tcp(u_char * data, int skblen,int FIFO_NO)
 	    char ccu = a_tcp->client.collect_urg;
 	    char scu = a_tcp->server.collect_urg;
 	    
-	    (i->item) (a_tcp, &data);
+	    (i->item) (a_tcp, &data,FIFO_NO);
 	    if (cc < a_tcp->client.collect)
 	      whatto |= COLLECT_cc;
 	    if (ccu < a_tcp->client.collect_urg)
@@ -903,7 +893,7 @@ process_tcp(u_char * data, int skblen,int FIFO_NO)
 
       a_tcp->nids_state = NIDS_CLOSE;
       for (i = a_tcp->listeners; i; i = i->next)
-	(i->item) (a_tcp, &i->data);
+	(i->item) (a_tcp, &i->data,FIFO_NO);
       nids_free_tcp_stream(a_tcp,FIFO_NO);
       return;
     }
@@ -1056,6 +1046,6 @@ process_icmp(u_char * data,int FIFO_NO)
     return;
   a_tcp->nids_state = NIDS_RESET;
   for (i = a_tcp->listeners; i; i = i->next)
-    (i->item) (a_tcp, &i->data);
+    (i->item) (a_tcp, &i->data,FIFO_NO);
   nids_free_tcp_stream(a_tcp,FIFO_NO);
 }

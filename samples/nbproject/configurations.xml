@@ -53,6 +53,21 @@
       </item>
       <item path="nids_next.c" ex="true" tool="0" flavor2="0">
       </item>
+      <item path="overflows.c" ex="false" tool="0" flavor2="2">
+        <cTool>
+        </cTool>
+      </item>
+      <item path="printall.c" ex="false" tool="0" flavor2="0">
+        <cTool>
+          <preprocessorList>
+            <Elem>_GNU_SOURCE</Elem>
+          </preprocessorList>
+        </cTool>
+      </item>
+      <item path="sniff.c" ex="false" tool="0" flavor2="2">
+        <cTool>
+        </cTool>
+      </item>
     </conf>
   </confs>
 </configurationDescriptor>

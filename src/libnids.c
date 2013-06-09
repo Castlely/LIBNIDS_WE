@@ -2,6 +2,8 @@
   Copyright (c) 1999 Rafal Wojtczuk <nergal@7bulls.com>. All rights reserved.
   See the file COPYING for license details.
 */
+
+
 #include <pthread.h>
 #include <config.h>
 #include <sys/types.h>
@@ -18,10 +20,12 @@
 #include <pcap.h>
 #include <errno.h>
 #include <config.h>
-#if (HAVE_UNISTD_H)
+
 #include <unistd.h>
-#endif
-#include <stdlib.h>
+#include <stdio.h>
+
+//#define _GNU_SOURCE
+
 #include "checksum.h"
 #include "ip_fragment.h"
 #include "scan.h"
@@ -31,6 +35,7 @@
 #ifdef HAVE_LIBGTHREAD_2_0
 #include <glib.h>
 #endif
+
 
 #ifdef __linux__
 extern int set_all_promisc();
@@ -68,10 +73,11 @@ static struct cap_queue_item EOF_item;
 static GError *gerror = NULL;
 
 #endif
-
-
-
-
+//----------------------------------------------------
+FILE *myfphash;
+extern int test[8];
+extern int testinput;
+//---------------------------------------------------
 char nids_errbuf[PCAP_ERRBUF_SIZE];
 struct pcap_pkthdr * nids_last_pcap_header = NULL;
 u_char *nids_last_pcap_data = NULL;
@@ -162,39 +168,87 @@ int FIFO_init()
 		{
 			the_FIFO[i][j].data=NULL;
 			the_FIFO[i][j].skblen=0;
+                        the_FIFO[i][j].need_free=0;
 		}
+                for(j=0;j<CACHELINE_SIZE;j++)
+                {
+                    cBuffer[i][j].data=NULL;
+                    cBuffer[i][j].need_free=0;
+                    cBuffer[i][j].skblen=0;
+                }
 		head[i]=0;
 		tail[i]=0;
+                timestp[i]=0;
+        
+                current[i]=0;
 	}
   //ŒÆËãcpuÊýÄ¿ £¬ŽýŒÆËã
-	cpu_num=2;
 }
 
 int enqueue(struct FIFO_node data,struct FIFO_node *FIFO_instance,int *head)
 {
-	if(FIFO_instance[*head].data!=NULL)
-	{
-		return 1;//¶ÓÁÐÂú£¬Ö±œÓ¶ª°ü£¿»òÕß·¢ËÍicmpÏûÏ¢£¿
-	}
-	FIFO_instance[*head]=data;
-	*head=(*head+1)%S_FIFO_max_size;
-	return 0;
+    /*
+    if(the_FIFO[FIFO_NO][head[FIFO_NO]].data!=NULL)
+        return 1;
+    if(current[FIFO_NO]==0)
+        timestp[FIFO_NO]=time((time_t*)NULL);
+    cBuffer[FIFO_NO][current[FIFO_NO]]=data;
+    current[FIFO_NO]++;
+    if((current==CACHELINE_SIZE)||(time((time_t*)NULL)-timestp[FIFO_NO]>10))
+    {
+        
+    }*/
+    
+    if(FIFO_instance[*head].data!=NULL)
+    {
+            return 1;//¶ÓÁÐÂú£¬Ö±œÓ¶ª°ü£¿»òÕß·¢ËÍicmpÏûÏ¢£¿
+    }
+    //fprintf(stderr,"enqueue%d\n",*head);
+    FIFO_instance[*head]=data;
+    *head=(*head+1)%S_FIFO_max_size;
+
+    return 0;
+     
 }
-int dequeue(struct FIFO_node *data,struct FIFO_node *FIFO_instance,int *tail)
+int dequeue(struct FIFO_node *pnode,struct FIFO_node *FIFO_instance,int *tail)
 {
-	*data=FIFO_instance[*tail];//optimaized out 咋办？
-	if(data==NULL)
+	*pnode=FIFO_instance[*tail];//optimaized out 咋办？
+	if((*pnode).data==NULL)
 	{
 		return 1;//¶ÓÁÐ¿Õ£¬sleepÒ»ÏÂ£¿
 	}
+        //fprintf(stderr,"dequeue%d\n",*tail);
 	FIFO_instance[*tail].data=NULL;
-	//skblenÎªœÚÊ¡Ê±Œä£¬²»ÖØÐŽÁË
 	*tail=(*tail+1)%S_FIFO_max_size;
 	return 0;
 }
 
+int myhash(u_char * data)
+{
+	struct ip *this_iphdr = (struct ip *)data;
+        struct tcphdr *this_tcphdr = (struct tcphdr *)(data + 4 * this_iphdr->ip_hl);
+        u_int16_t temp[6],hash;
+        int *ptr;
+        int i;
+        ptr=temp;
+        *ptr++=this_iphdr->ip_src.s_addr;
+        *ptr++=this_iphdr->ip_dst.s_addr;
+        temp[4]=this_tcphdr->th_sport;
+        temp[5]=this_tcphdr->th_dport;
+        for(i=1,hash=temp[0];i<6;i++)
+        {
+            hash^=temp[i];
+        }	
+	//this_iphdr->ip_src.s_addr; this_iphdr->ip_dst.s_addr;  32Î»µØÖ·
+	//this_tcphdr->source; this_tcphdr->dest; 16Î»¶Ë¿ÚºÅ + this_tcphdr->source + this_tcphdr->dest
+	//hash=(htonl(this_iphdr->ip_src.s_addr) + htonl(this_iphdr->ip_dst.s_addr) )%cpu_num;
+
+	return ((int)hash)%(cpu_num-1);
+}
+
+
 //kernal
-//-------------------------------
+//----------------------------------------------------------------------------------------
 //interface
 //Õâžöº¯ÊýÔÚÖžÅÉµÄÊ±ºòœ«³ýÁËtcpµÄ°üÖ±œÓÖžÅÉµœÁíÒ»¶ÓÁÐ£¿È»ºóÈÃÒ»žöÏß³ÌÈ¥ŽŠÀí³ýtcpÖ®ÍâµÄ°ü£¿
 
@@ -202,37 +256,55 @@ int dequeue(struct FIFO_node *data,struct FIFO_node *FIFO_instance,int *tail)
 int input_dispatcher ()
 {
     int status;
-        pcap_loop(desc, 100, (pcap_handler) nids_pcap_handler, 0);
+        pcap_loop(desc, -1, (pcap_handler) nids_pcap_handler, 0);
     //Õâ²¿·Ö×öµœtcp·ÖÆ¬ÖØ×éÎªÖ¹
 		
-    return status;
+    return 0;
 }
 //µœ·ÖÆ¬ÖØ×éÎªÖ¹µÄ»°£¬ÔÚÖØ×éºóÈë¶ÓÐèÒªÐÞžÄÕâžöº¯Êý
 
-int highlevel_process(int process_num)
+int highlevel_process(int num)
 {
 	struct FIFO_node this_node;
-		
-        
-        fprintf(stderr,"队列%d空，睡一秒？",process_num);
+	int process_num=num;
+        struct proc_node *i;	
+        int j,temp;
+   
+      //  fprintf(stderr,"队列%d空，睡一秒？",process_num);
 	while(1)
 	{
+            //testinput++;
+            //fprintf(stderr,"dequeue %d ",testinput);
 		switch(dequeue(&this_node,the_FIFO[process_num],&tail[process_num]))
 		{
 			case 0://¶ÓÁÐÕý³£µ¯³öÊýŸÝ
-				process_tcp(this_node.data, this_node.skblen,process_num);
+				//printf("ok1");
+                            for (i = ip_procs; i; i = i->next)
+                                        (i->item) (this_node.data, this_node.skblen,process_num);
 				break;
 			case 1://¶ÓÁÐ¿Õ
-                            fprintf(stderr,"队列%d空，睡一秒？",process_num);
-                            sleep(1);
+				//printf("ok2");
+                            for(j=0,temp=0;j<8;j++)
+                            {
+                                temp+=test[j];
+                            }
+                            fprintf(stderr,"%d ",temp);
+                            //fprintf(stderr,"队列%d空，睡一秒？",process_num);
+                          // sleep(0);
+                         
 				break;
-			case 2://other ¡­¡­
+			case 2://other ¡­¡
+				//printf("ok3");
 				break;
 			default:
+                //printf("ok4");
                             break;
 			//±šŽí
 		}
+                if(this_node.need_free)
+                    free(this_node.data);
 	}
+    return 0;
 }
 
 static int nids_ip_filter(struct ip *x, int len)
@@ -452,8 +524,10 @@ void nids_pcap_handler(u_char * par, struct pcap_pkthdr *hdr, u_char * data)
 	memcpy(data_aligned, data + nids_linkoffset, hdr->caplen - nids_linkoffset);
     } else 
 #endif
-  data_aligned =malloc(hdr->caplen-nids_linkoffset);
-  memcpy(data_aligned,data + nids_linkoffset,hdr->caplen-nids_linkoffset);
+
+    //data_aligned=malloc(hdr->caplen - nids_linkoffset);
+    //memcpy(data_aligned,data + nids_linkoffset,hdr->caplen - nids_linkoffset);
+    data_aligned = data + nids_linkoffset;
 
  #ifdef HAVE_LIBGTHREAD_2_0
      if(nids_params.multiproc) { 
@@ -486,12 +560,17 @@ void nids_pcap_handler(u_char * par, struct pcap_pkthdr *hdr, u_char * data)
  #endif
 }
 
+
 static void gen_ip_frag_proc(u_char * data, int len)
 {
     struct proc_node *i;
     struct ip *iph = (struct ip *) data;
     int need_free = 0;
     int skblen;
+    int FIFO_NO;
+    struct FIFO_node temp;
+    temp.data=data;
+   
     void (*glibc_syslog_h_workaround)(int, int, struct ip *, void*)=
         nids_params.syslog;
 
@@ -525,9 +604,23 @@ static void gen_ip_frag_proc(u_char * data, int len)
 	skblen += nids_params.dev_addon;
     skblen = (skblen + 15) & ~15;
     skblen += nids_params.sk_buff_size;
-
-  //  for (i = ip_procs; i; i = i->next)
-//	(i->item) (iph, skblen);
+    
+    temp.skblen=skblen;
+    temp.need_free=need_free;
+    FIFO_NO=myhash(data);
+    //_----------------------------------
+    
+   // fprintf(myfphash, "%d ", FIFO_NO); 
+   // fflush(myfphash);
+    //-----------------------------------------
+    //testinput++;
+   // fprintf(stderr,"input %d ",testinput);
+    if(enqueue(temp,the_FIFO[FIFO_NO],&head[FIFO_NO]))
+    {
+        fprintf(stderr,"队列%d满，直接丢包",FIFO_NO);
+        //sleep(0);
+    }
+  //  
   //  if (need_free)
 //	free(iph);
 }
@@ -571,18 +664,13 @@ static void process_udp(char *data)
 	ipp = ipp->next;
     }
 }
-static void gen_ip_proc(u_char * data, int skblen)
+static void gen_ip_proc(u_char * data, int skblen,int process_num)
 {
-    int FIFO_NO;
-    struct FIFO_node temp;
-    temp.data=data;
-    temp.skblen=skblen;
+    
     switch (((struct ip *) data)->ip_p) 
 		{
 			case IPPROTO_TCP:
-				FIFO_NO=myhash(data);
-				if(enqueue(temp,the_FIFO[FIFO_NO],&head[FIFO_NO]))
-                                    fprintf(stderr,"队列%d满，直接丢包",FIFO_NO);
+				process_tcp(data, skblen,process_num);
 				break;
 			//ºó±ßµÄÏÈ²»¹ÜÁË
 			case IPPROTO_UDP:
@@ -719,6 +807,7 @@ static void cap_queue_process_thread()
 
 int nids_init()
 {
+    cpu_num=sysconf(_SC_NPROCESSORS_CONF);
     /* free resources that previous usages might have allocated */
     nids_exit();
     FIFO_init();
@@ -819,39 +908,71 @@ int nids_init()
 
 int nids_run()
 {
-    int i=cpu_num-1;
+    int i;
+    cpu_set_t mask;
+    cpu_set_t get;
+    pthread_t tip_id,tap_id[8];
+    int err;
+  //----------------------------------------------  
+    if(!(myfphash=fopen("hashtest.txt","w+")))
+        fprintf(stderr,"打开文件错误\n");
+   
+  //----------------------------------------------  
     if (!desc) {
 	strcpy(nids_errbuf, "Libnids not initialized");
 	return 0;
     }
-    int err;
-    pthread_t tip_id,tap_id[8];
+    
+    CPU_ZERO(&mask);
+    CPU_SET(cpu_num-1, &mask);
     //在核绑定的时候把序号最大的核绑定给ip，待做
     err=pthread_create(&tip_id,NULL,input_dispatcher,NULL);
     //input_dispatcher();
     //highlevel_process(0);
+    //sleep(3);
     if(err!=0)
-            printf("create false in dispatcher.");
+        printf("create false in dispatcher.");
+    if (pthread_setaffinity_np(tip_id, sizeof(mask), &mask) < 0) {
+                fprintf(stderr, "set thread affinity failed\n");
+            }
       
     //ÔÚÆô¶¯highlevel_processµÄÏß³ÌÖ®Ç°¿ÉÒÔÊÊµ±ÈÃÖ÷Ïß³ÌsleepÒ»ÏÂ
 
     //žùŸÝºËµÄÊýÄ¿œøÐÐhignlevelÏß³ÌµÄÆô¶¯
     //低序号的i和核绑定ap
-    while(i)
+    
+    err=pthread_create(&tip_id,NULL,input_dispatcher,NULL);
+    
+       START_CAP_QUEUE_PROCESS_THREAD();
+       
+    for(i=0;i<cpu_num-1;i++)
     {
-            err=pthread_create(&tap_id[i-1],NULL,highlevel_process,0);
+        int temp=i;
+            err=pthread_create(&tap_id[temp],NULL,highlevel_process,(void *)temp);
             if(err!=0)
                     printf("create false in dispatcher.");
-            i--;
+        
+        CPU_ZERO(&mask);
+        CPU_SET(i, &mask);
+        if (pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0) 
+        {
+            fprintf(stderr, "set thread %d affinity failed\n",i);
+        }
+         
     }
     pthread_join(tap_id[0],NULL);
     
-//    START_CAP_QUEUE_PROCESS_THREAD(); /* threading... */
- //   pcap_loop(desc, -1, (pcap_handler) nids_pcap_handler, 0);
+ /* threading... */
+     //  highlevel_process(1);
+  
     /* FIXME: will this code ever be called? Don't think so - mcree */
- //   STOP_CAP_QUEUE_PROCESS_THREAD(); 
+    STOP_CAP_QUEUE_PROCESS_THREAD(); 
     
- //   nids_exit();
+    nids_exit();
+    
+    
+    fclose(myfphash);
+    
     
     return 0;
 }
@@ -935,3 +1056,5 @@ int nids_dispatch(int cnt)
     STOP_CAP_QUEUE_PROCESS_THREAD(); 
     return r;
 }
+
+

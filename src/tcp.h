@@ -35,11 +35,12 @@ int myhash(u_char * data);
 
 #define S_FIFO_max_size 10000
 #define FIFO_max_num 8
-
+#define CACHELINE_SIZE 8
 struct FIFO_node
 {
 	u_char * data;
 	int skblen;
+        int need_free;
 };
 struct HP_Params_node
 {
@@ -61,7 +62,8 @@ int tail[FIFO_max_num];
 int cpu_num;
 
 struct FIFO_node the_FIFO[FIFO_max_num][S_FIFO_max_size];
-
-
+time_t timestp[FIFO_max_num];
+struct FIFO_node cBuffer[FIFO_max_num][CACHELINE_SIZE];
+int current[FIFO_max_num];
 
 #endif /* _NIDS_TCP_H */
