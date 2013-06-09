@@ -1,0 +1,11 @@
+top	看各cpu状态
+tcpreplay --intf1=lo --loop=200 --topspeed mytcp0605.tcpdump	播放包
+
+在src下
+make clean
+make
+
+在sample下
+make clean
+make
+
