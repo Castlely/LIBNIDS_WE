@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configurationDescriptor version="84">
+  <logicalFolder name="root" displayName="root" projectFiles="true" kind="ROOT">
+    <df name="samples" root=".">
+      <in>chksum_ctl.c</in>
+      <in>nids_next.c</in>
+      <in>overflows.c</in>
+      <in>printall.c</in>
+      <in>sniff.c</in>
+    </df>
+    <logicalFolder name="ExternalFiles"
+                   displayName="重要文件"
+                   projectFiles="false"
+                   kind="IMPORTANT_FILES_FOLDER">
+      <itemPath>Makefile</itemPath>
+    </logicalFolder>
+  </logicalFolder>
+  <sourceFolderFilter>^(nbproject)$</sourceFolderFilter>
+  <sourceRootList>
+    <Elem>.</Elem>
+  </sourceRootList>
+  <projectmakefile>Makefile</projectmakefile>
+  <confs>
+    <conf name="Default" type="0">
+      <toolsSet>
+        <remote-sources-mode>LOCAL_SOURCES</remote-sources-mode>
+        <compilerSet>default</compilerSet>
+      </toolsSet>
+      <codeAssistance>
+      </codeAssistance>
+      <makefileType>
+        <makeTool>
+          <buildCommandWorkingDir>.</buildCommandWorkingDir>
+          <buildCommand>${MAKE} -f Makefile</buildCommand>
+          <cleanCommand>${MAKE} -f Makefile clean</cleanCommand>
+          <executablePath>printall</executablePath>
+          <cTool>
+            <incDir>
+              <pElem>../src</pElem>
+              <pElem>.</pElem>
+              <pElem>/usr/local/include</pElem>
+            </incDir>
+            <preprocessorList>
+              <Elem>HAVE_NET_ETHERNET_H</Elem>
+              <Elem>_BSD_SOURCE</Elem>
+              <Elem>__BSD_SOURCE</Elem>
+              <Elem>__FAVOR_BSD</Elem>
+            </preprocessorList>
+          </cTool>
+        </makeTool>
+      </makefileType>
+      <item path="chksum_ctl.c" ex="true" tool="0" flavor2="0">
+      </item>
+      <item path="nids_next.c" ex="true" tool="0" flavor2="0">
+      </item>
+    </conf>
+  </confs>
+</configurationDescriptor>

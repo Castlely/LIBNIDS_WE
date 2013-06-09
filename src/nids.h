@@ -158,8 +158,8 @@ int nids_getfd (void);
 int nids_dispatch (int);
 int nids_next (void);
 void nids_pcap_handler(u_char *, struct pcap_pkthdr *, u_char *);
-struct tcp_stream *nids_find_tcp_stream(struct tuple4 *);
-void nids_free_tcp_stream(struct tcp_stream *);
+struct tcp_stream *nids_find_tcp_stream(struct tuple4 *,int FIFO_NO);
+void nids_free_tcp_stream(struct tcp_stream * a_tcp,int FIFO_NO);
 
 extern struct nids_prm nids_params;
 extern char *nids_warnings[];
@@ -167,7 +167,7 @@ extern char nids_errbuf[];
 extern struct pcap_pkthdr *nids_last_pcap_header;
 extern u_char *nids_last_pcap_data;
 extern u_int nids_linkoffset;
-extern struct tcp_timeout *nids_tcp_timeouts;
+extern struct tcp_timeout *nids_tcp_timeouts[];
 
 struct nids_chksum_ctl {
 	u_int netaddr;

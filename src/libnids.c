@@ -2,7 +2,7 @@
   Copyright (c) 1999 Rafal Wojtczuk <nergal@7bulls.com>. All rights reserved.
   See the file COPYING for license details.
 */
-
+#include <pthread.h>
 #include <config.h>
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -49,7 +49,7 @@ static struct proc_node *udp_procs;
 struct proc_node *tcp_procs;
 static int linktype;
 static pcap_t *desc = NULL;
-
+#define HAVE_LIBGTHREAD_2_0 
 #ifdef HAVE_LIBGTHREAD_2_0
 
 /* async queue for multiprocessing - mcree */
@@ -68,6 +68,9 @@ static struct cap_queue_item EOF_item;
 static GError *gerror = NULL;
 
 #endif
+
+
+
 
 char nids_errbuf[PCAP_ERRBUF_SIZE];
 struct pcap_pkthdr * nids_last_pcap_header = NULL;
@@ -110,6 +113,127 @@ struct nids_prm nids_params = {
     0,				/* tcp_workarounds */
     NULL			/* pcap_desc */
 };
+
+//----------------------------------------
+/*
+#define S_FIFO_max_size 10000
+#define FIFO_max_num 8
+
+struct FIFO_node
+{
+	u_char * data;
+	int skblen;
+};
+struct HP_Params_node
+{
+    struct tcp_stream **tcp_stream_table;
+    struct tcp_stream *streams_pool;
+    int tcp_num;
+    int tcp_stream_table_size;
+    int max_stream;
+    struct tcp_stream *tcp_latest ;
+    struct tcp_stream *tcp_oldest ;
+    struct tcp_stream *free_streams;
+    struct ip *ugly_iphdr;
+    //tcp_timeout *nids_tcp_timeouts = 0;
+};
+struct HP_Params_node HP_params[FIFO_max_num];
+
+int head[FIFO_max_num];
+int tail[FIFO_max_num];
+int cpu_num;
+
+struct FIFO_node the_FIFO[FIFO_max_num][S_FIFO_max_size];
+*/
+
+
+
+//----------------------------------------
+
+
+int FIFO_init()
+{
+	int i,j;
+	//œ«fifoÊý×é³õÊŒ»¯È«null
+
+	for(i=0;i<FIFO_max_num;i++)
+	{
+		for(j=0;j<S_FIFO_max_size;j++)
+		{
+			the_FIFO[i][j].data=NULL;
+			the_FIFO[i][j].skblen=0;
+		}
+		head[i]=0;
+		tail[i]=0;
+	}
+  //ŒÆËãcpuÊýÄ¿ £¬ŽýŒÆËã
+	cpu_num=2;
+}
+
+int enqueue(struct FIFO_node data,struct FIFO_node *FIFO_instance,int *head)
+{
+	if(FIFO_instance[*head].data!=NULL)
+	{
+		return 1;//¶ÓÁÐÂú£¬Ö±œÓ¶ª°ü£¿»òÕß·¢ËÍicmpÏûÏ¢£¿
+	}
+	FIFO_instance[*head]=data;
+	*head=(*head+1)%S_FIFO_max_size;
+	return 0;
+}
+int dequeue(struct FIFO_node *data,struct FIFO_node *FIFO_instance,int *tail)
+{
+	*data=FIFO_instance[*tail];//optimaized out 咋办？
+	if(data==NULL)
+	{
+		return 1;//¶ÓÁÐ¿Õ£¬sleepÒ»ÏÂ£¿
+	}
+	FIFO_instance[*tail].data=NULL;
+	//skblenÎªœÚÊ¡Ê±Œä£¬²»ÖØÐŽÁË
+	*tail=(*tail+1)%S_FIFO_max_size;
+	return 0;
+}
+
+//kernal
+//-------------------------------
+//interface
+//Õâžöº¯ÊýÔÚÖžÅÉµÄÊ±ºòœ«³ýÁËtcpµÄ°üÖ±œÓÖžÅÉµœÁíÒ»¶ÓÁÐ£¿È»ºóÈÃÒ»žöÏß³ÌÈ¥ŽŠÀí³ýtcpÖ®ÍâµÄ°ü£¿
+
+
+int input_dispatcher ()
+{
+    int status;
+        pcap_loop(desc, 100, (pcap_handler) nids_pcap_handler, 0);
+    //Õâ²¿·Ö×öµœtcp·ÖÆ¬ÖØ×éÎªÖ¹
+		
+    return status;
+}
+//µœ·ÖÆ¬ÖØ×éÎªÖ¹µÄ»°£¬ÔÚÖØ×éºóÈë¶ÓÐèÒªÐÞžÄÕâžöº¯Êý
+
+int highlevel_process(int process_num)
+{
+	struct FIFO_node this_node;
+		
+        
+        fprintf(stderr,"队列%d空，睡一秒？",process_num);
+	while(1)
+	{
+		switch(dequeue(&this_node,the_FIFO[process_num],&tail[process_num]))
+		{
+			case 0://¶ÓÁÐÕý³£µ¯³öÊýŸÝ
+				process_tcp(this_node.data, this_node.skblen,process_num);
+				break;
+			case 1://¶ÓÁÐ¿Õ
+                            fprintf(stderr,"队列%d空，睡一秒？",process_num);
+                            sleep(1);
+				break;
+			case 2://other ¡­¡­
+				break;
+			default:
+                            break;
+			//±šŽí
+		}
+	}
+}
 
 static int nids_ip_filter(struct ip *x, int len)
 {
@@ -230,15 +354,17 @@ void nids_pcap_handler(u_char * par, struct pcap_pkthdr *hdr, u_char * data)
     int linkoffset_tweaked_by_prism_code = 0;
     int linkoffset_tweaked_by_radio_code = 0;
 #endif
-
+    int j;
     /*
      * Check for savagely closed TCP connections. Might
      * happen only when nids_params.tcp_workarounds is non-zero;
      * otherwise nids_tcp_timeouts is always NULL.
      */
-    if (NULL != nids_tcp_timeouts)
-      tcp_check_timeouts(&hdr->ts);
-
+    for(j=0;j<cpu_num;j++)
+    {
+        if (NULL != nids_tcp_timeouts[j])
+          tcp_check_timeouts(&hdr->ts,j);
+    }
     nids_last_pcap_header = hdr;
     nids_last_pcap_data = data;
     (void)par; /* warnings... */
@@ -326,7 +452,8 @@ void nids_pcap_handler(u_char * par, struct pcap_pkthdr *hdr, u_char * data)
 	memcpy(data_aligned, data + nids_linkoffset, hdr->caplen - nids_linkoffset);
     } else 
 #endif
-  data_aligned = data + nids_linkoffset;
+  data_aligned =malloc(hdr->caplen-nids_linkoffset);
+  memcpy(data_aligned,data + nids_linkoffset,hdr->caplen-nids_linkoffset);
 
  #ifdef HAVE_LIBGTHREAD_2_0
      if(nids_params.multiproc) { 
@@ -399,10 +526,10 @@ static void gen_ip_frag_proc(u_char * data, int len)
     skblen = (skblen + 15) & ~15;
     skblen += nids_params.sk_buff_size;
 
-    for (i = ip_procs; i; i = i->next)
-	(i->item) (iph, skblen);
-    if (need_free)
-	free(iph);
+  //  for (i = ip_procs; i; i = i->next)
+//	(i->item) (iph, skblen);
+  //  if (need_free)
+//	free(iph);
 }
 
 #if HAVE_BSD_UDPHDR
@@ -446,19 +573,29 @@ static void process_udp(char *data)
 }
 static void gen_ip_proc(u_char * data, int skblen)
 {
-    switch (((struct ip *) data)->ip_p) {
-    case IPPROTO_TCP:
-	process_tcp(data, skblen);
-	break;
-    case IPPROTO_UDP:
-	process_udp((char *)data);
-	break;
-    case IPPROTO_ICMP:
-	if (nids_params.n_tcp_streams)
-	    process_icmp(data);
-	break;
-    default:
-	break;
+    int FIFO_NO;
+    struct FIFO_node temp;
+    temp.data=data;
+    temp.skblen=skblen;
+    switch (((struct ip *) data)->ip_p) 
+		{
+			case IPPROTO_TCP:
+				FIFO_NO=myhash(data);
+				if(enqueue(temp,the_FIFO[FIFO_NO],&head[FIFO_NO]))
+                                    fprintf(stderr,"队列%d满，直接丢包",FIFO_NO);
+				break;
+			//ºó±ßµÄÏÈ²»¹ÜÁË
+			case IPPROTO_UDP:
+				//process_udp((char *)data);
+				break;
+				
+			case IPPROTO_ICMP:
+				//if (nids_params.n_tcp_streams)
+					//process_icmp(data);
+				break;
+				
+			default:
+				break;
     }
 }
 static void init_procs()
@@ -584,7 +721,7 @@ int nids_init()
 {
     /* free resources that previous usages might have allocated */
     nids_exit();
-
+    FIFO_init();
     if (nids_params.pcap_desc)
         desc = nids_params.pcap_desc;
     else if (nids_params.filename) {
@@ -595,13 +732,13 @@ int nids_init()
 	return 0;
 
     if (nids_params.pcap_filter != NULL) {
-	u_int mask = 0;
-	struct bpf_program fcode;
+		u_int mask = 0;
+		struct bpf_program fcode;
 
-	if (pcap_compile(desc, &fcode, nids_params.pcap_filter, 1, mask) <
-	    0) return 0;
-	if (pcap_setfilter(desc, &fcode) == -1)
-	    return 0;
+		if (pcap_compile(desc, &fcode, nids_params.pcap_filter, 1, mask) <
+			0) return 0;
+		if (pcap_setfilter(desc, &fcode) == -1)
+			return 0;
     }
     switch ((linktype = pcap_datalink(desc))) {
 #ifdef DLT_IEEE802_11
@@ -654,10 +791,10 @@ int nids_init()
 	return 0;
     }
     if (nids_params.dev_addon == -1) {
-	if (linktype == DLT_EN10MB)
-	    nids_params.dev_addon = 16;
-	else
-	    nids_params.dev_addon = 0;
+		if (linktype == DLT_EN10MB)
+			nids_params.dev_addon = 16;
+		else
+			nids_params.dev_addon = 0;
     }
     if (nids_params.syslog == nids_syslog)
 	openlog("libnids", 0, LOG_LOCAL0);
@@ -682,34 +819,63 @@ int nids_init()
 
 int nids_run()
 {
+    int i=cpu_num-1;
     if (!desc) {
 	strcpy(nids_errbuf, "Libnids not initialized");
 	return 0;
     }
-    START_CAP_QUEUE_PROCESS_THREAD(); /* threading... */
-    pcap_loop(desc, -1, (pcap_handler) nids_pcap_handler, 0);
+    int err;
+    pthread_t tip_id,tap_id[8];
+    //在核绑定的时候把序号最大的核绑定给ip，待做
+    err=pthread_create(&tip_id,NULL,input_dispatcher,NULL);
+    //input_dispatcher();
+    //highlevel_process(0);
+    if(err!=0)
+            printf("create false in dispatcher.");
+      
+    //ÔÚÆô¶¯highlevel_processµÄÏß³ÌÖ®Ç°¿ÉÒÔÊÊµ±ÈÃÖ÷Ïß³ÌsleepÒ»ÏÂ
+
+    //žùŸÝºËµÄÊýÄ¿œøÐÐhignlevelÏß³ÌµÄÆô¶¯
+    //低序号的i和核绑定ap
+    while(i)
+    {
+            err=pthread_create(&tap_id[i-1],NULL,highlevel_process,0);
+            if(err!=0)
+                    printf("create false in dispatcher.");
+            i--;
+    }
+    pthread_join(tap_id[0],NULL);
+    
+//    START_CAP_QUEUE_PROCESS_THREAD(); /* threading... */
+ //   pcap_loop(desc, -1, (pcap_handler) nids_pcap_handler, 0);
     /* FIXME: will this code ever be called? Don't think so - mcree */
-    STOP_CAP_QUEUE_PROCESS_THREAD(); 
-    nids_exit();
+ //   STOP_CAP_QUEUE_PROCESS_THREAD(); 
+    
+ //   nids_exit();
+    
     return 0;
 }
 
 void nids_exit()
 {
-    if (!desc) {
+    int i;
+    if (!desc)
+        {
         strcpy(nids_errbuf, "Libnids not initialized");
 	return;
-    }
+        }
 #ifdef HAVE_LIBGTHREAD_2_0
-    if (nids_params.multiproc) {
-    /* I have no portable sys_sched_yield,
-       and I don't want to add more synchronization...
-    */
-      while (g_async_queue_length(cap_queue)>0) 
-        usleep(100000);
-    }
+    if (nids_params.multiproc) 
+        {
+            /* I have no portable sys_sched_yield,
+               and I don't want to add more synchronization...
+            */
+              while (g_async_queue_length(cap_queue)>0) 
+                usleep(100000);
+         }
 #endif
-    tcp_exit();
+    for(i=0;i<cpu_num;i++)
+        tcp_exit(i);
     ip_frag_exit();
     scan_exit();
     strcpy(nids_errbuf, "loop: ");

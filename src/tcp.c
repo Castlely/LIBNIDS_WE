@@ -49,7 +49,7 @@ enum {
 #define EXP_SEQ (snd->first_data_seq + rcv->count + rcv->urg_count)
 
 extern struct proc_node *tcp_procs;
-
+/*
 static struct tcp_stream **tcp_stream_table;
 static struct tcp_stream *streams_pool;
 static int tcp_num = 0;
@@ -58,7 +58,25 @@ static int max_stream;
 static struct tcp_stream *tcp_latest = 0, *tcp_oldest = 0;
 static struct tcp_stream *free_streams;
 static struct ip *ugly_iphdr;
-struct tcp_timeout *nids_tcp_timeouts = 0;
+  */
+
+
+
+
+//
+struct tcp_timeout *nids_tcp_timeouts[FIFO_max_num];
+
+int myhash(u_char * data)
+{
+	struct ip *this_iphdr = (struct ip *)data;
+        struct tcphdr *this_tcphdr = (struct tcphdr *)(data + 4 * this_iphdr->ip_hl);
+	int hash;
+	//this_iphdr->ip_src.s_addr; this_iphdr->ip_dst.s_addr;  32Î»µØÖ·
+	//this_tcphdr->source; this_tcphdr->dest; 16Î»¶Ë¿ÚºÅ + this_tcphdr->source + this_tcphdr->dest
+	//hash=(htonl(this_iphdr->ip_src.s_addr) + htonl(this_iphdr->ip_dst.s_addr) )%cpu_num;
+        hash=0;
+	return hash;
+}
 
 static void purge_queue(struct half_stream * h)
 {
@@ -75,7 +93,7 @@ static void purge_queue(struct half_stream * h)
 }
 
 static void
-add_tcp_closing_timeout(struct tcp_stream * a_tcp)
+add_tcp_closing_timeout(struct tcp_stream * a_tcp,int FIFO_NO)
 {
   struct tcp_timeout *to;
   struct tcp_timeout *newto;
@@ -88,7 +106,7 @@ add_tcp_closing_timeout(struct tcp_stream * a_tcp)
   newto->a_tcp = a_tcp;
   newto->timeout.tv_sec = nids_last_pcap_header->ts.tv_sec + 10;
   newto->prev = 0;
-  for (newto->next = to = nids_tcp_timeouts; to; newto->next = to = to->next) {
+  for (newto->next = to = nids_tcp_timeouts[FIFO_NO]; to; newto->next = to = to->next) {
     if (to->a_tcp == a_tcp) {
       free(newto);
       return;
@@ -98,7 +116,7 @@ add_tcp_closing_timeout(struct tcp_stream * a_tcp)
     newto->prev = to;
   }
   if (!newto->prev)
-    nids_tcp_timeouts = newto;
+    nids_tcp_timeouts[FIFO_NO] = newto;
   else
     newto->prev->next = newto;
   if (newto->next)
@@ -106,19 +124,19 @@ add_tcp_closing_timeout(struct tcp_stream * a_tcp)
 }
 
 static void
-del_tcp_closing_timeout(struct tcp_stream * a_tcp)
+del_tcp_closing_timeout(struct tcp_stream * a_tcp,int FIFO_NO)
 {
   struct tcp_timeout *to;
 
   if (!nids_params.tcp_workarounds)
     return;
-  for (to = nids_tcp_timeouts; to; to = to->next)
+  for (to = nids_tcp_timeouts[FIFO_NO]; to; to = to->next)
     if (to->a_tcp == a_tcp)
       break;
   if (!to)
     return;
   if (!to->prev)
-    nids_tcp_timeouts = to->next;
+    nids_tcp_timeouts[FIFO_NO] = to->next;
   else
     to->prev->next = to->next;
   if (to->next)
@@ -126,13 +144,12 @@ del_tcp_closing_timeout(struct tcp_stream * a_tcp)
   free(to);
 }
 
-void
-nids_free_tcp_stream(struct tcp_stream * a_tcp)
+void nids_free_tcp_stream(struct tcp_stream * a_tcp,int FIFO_NO)
 {
   int hash_index = a_tcp->hash_index;
   struct lurker_node *i, *j;
 
-  del_tcp_closing_timeout(a_tcp);
+  del_tcp_closing_timeout(a_tcp,FIFO_NO);
   purge_queue(&a_tcp->server);
   purge_queue(&a_tcp->client);
    
@@ -141,7 +158,7 @@ nids_free_tcp_stream(struct tcp_stream * a_tcp)
   if (a_tcp->prev_node)
     a_tcp->prev_node->next_node = a_tcp->next_node;
   else
-    tcp_stream_table[hash_index] = a_tcp->next_node;
+    HP_params[FIFO_NO].tcp_stream_table[hash_index] = a_tcp->next_node;
   if (a_tcp->client.data)
     free(a_tcp->client.data);
   if (a_tcp->server.data)
@@ -150,10 +167,10 @@ nids_free_tcp_stream(struct tcp_stream * a_tcp)
     a_tcp->next_time->prev_time = a_tcp->prev_time;
   if (a_tcp->prev_time)
     a_tcp->prev_time->next_time = a_tcp->next_time;
-  if (a_tcp == tcp_oldest)
-    tcp_oldest = a_tcp->prev_time;
-  if (a_tcp == tcp_latest)
-    tcp_latest = a_tcp->next_time;
+  if (a_tcp == HP_params[FIFO_NO].tcp_oldest)
+    HP_params[FIFO_NO].tcp_oldest = a_tcp->prev_time;
+  if (a_tcp == HP_params[FIFO_NO].tcp_latest)
+    HP_params[FIFO_NO].tcp_latest = a_tcp->next_time;
   
   i = a_tcp->listeners;
   
@@ -162,34 +179,34 @@ nids_free_tcp_stream(struct tcp_stream * a_tcp)
     free(i);
     i = j;
   }
-  a_tcp->next_free = free_streams;
-  free_streams = a_tcp;
-  tcp_num--;
+  a_tcp->next_free = HP_params[FIFO_NO].free_streams;
+  HP_params[FIFO_NO].free_streams = a_tcp;
+  HP_params[FIFO_NO].tcp_num--;
 }
 
 void
-tcp_check_timeouts(struct timeval *now)
+tcp_check_timeouts(struct timeval *now,int FIFO_NO)
 {
   struct tcp_timeout *to;
   struct tcp_timeout *next;
   struct lurker_node *i;
 
-  for (to = nids_tcp_timeouts; to; to = next) {
+  for (to = nids_tcp_timeouts[FIFO_NO]; to; to = next) {
     if (now->tv_sec < to->timeout.tv_sec)
       return;
     to->a_tcp->nids_state = NIDS_TIMED_OUT;
     for (i = to->a_tcp->listeners; i; i = i->next)
       (i->item) (to->a_tcp, &i->data);
     next = to->next;
-    nids_free_tcp_stream(to->a_tcp);
+    nids_free_tcp_stream(to->a_tcp,FIFO_NO);
   }
 }
 
 static int
-mk_hash_index(struct tuple4 addr)
+mk_hash_index(struct tuple4 addr,int FIFO_NO)
 {
   int hash=mkhash(addr.saddr, addr.source, addr.daddr, addr.dest);
-  return hash % tcp_stream_table_size;
+  return hash % HP_params[FIFO_NO].tcp_stream_table_size;
 }
 
 static int get_ts(struct tcphdr * this_tcphdr, unsigned int * ts)
@@ -253,7 +270,7 @@ static int get_wscale(struct tcphdr * this_tcphdr, unsigned int * ws)
 
 
 static void
-add_new_tcp(struct tcphdr * this_tcphdr, struct ip * this_iphdr)
+add_new_tcp(struct tcphdr * this_tcphdr, struct ip * this_iphdr,int FIFO_NO)
 {
   struct tcp_stream *tolink;
   struct tcp_stream *a_tcp;
@@ -264,27 +281,27 @@ add_new_tcp(struct tcphdr * this_tcphdr, struct ip * this_iphdr)
   addr.dest = ntohs(this_tcphdr->th_dport);
   addr.saddr = this_iphdr->ip_src.s_addr;
   addr.daddr = this_iphdr->ip_dst.s_addr;
-  hash_index = mk_hash_index(addr);
+  hash_index = mk_hash_index(addr,FIFO_NO);
   
-  if (tcp_num > max_stream) {
+  if (HP_params[FIFO_NO].tcp_num > HP_params[FIFO_NO].max_stream) {
     struct lurker_node *i;
-    int orig_client_state=tcp_oldest->client.state;
-    tcp_oldest->nids_state = NIDS_TIMED_OUT;
-    for (i = tcp_oldest->listeners; i; i = i->next)
-      (i->item) (tcp_oldest, &i->data);
-    nids_free_tcp_stream(tcp_oldest);
+    int orig_client_state=HP_params[FIFO_NO].tcp_oldest->client.state;
+    HP_params[FIFO_NO].tcp_oldest->nids_state = NIDS_TIMED_OUT;
+    for (i = HP_params[FIFO_NO].tcp_oldest->listeners; i; i = i->next)
+      (i->item) (HP_params[FIFO_NO].tcp_oldest, &i->data);
+    nids_free_tcp_stream(HP_params[FIFO_NO].tcp_oldest,FIFO_NO);
     if (orig_client_state!=TCP_SYN_SENT)
-      nids_params.syslog(NIDS_WARN_TCP, NIDS_WARN_TCP_TOOMUCH, ugly_iphdr, this_tcphdr);
+      nids_params.syslog(NIDS_WARN_TCP, NIDS_WARN_TCP_TOOMUCH, HP_params[FIFO_NO].ugly_iphdr, this_tcphdr);
   }
-  a_tcp = free_streams;
+  a_tcp = HP_params[FIFO_NO].free_streams;
   if (!a_tcp) {
     fprintf(stderr, "gdb me ...\n");
     pause();
   }
-  free_streams = a_tcp->next_free;
+  HP_params[FIFO_NO].free_streams = a_tcp->next_free;
   
-  tcp_num++;
-  tolink = tcp_stream_table[hash_index];
+  HP_params[FIFO_NO].tcp_num++;
+  tolink = HP_params[FIFO_NO].tcp_stream_table[hash_index];
   memset(a_tcp, 0, sizeof(struct tcp_stream));
   a_tcp->hash_index = hash_index;
   a_tcp->addr = addr;
@@ -299,14 +316,14 @@ add_new_tcp(struct tcphdr * this_tcphdr, struct ip * this_iphdr)
   a_tcp->prev_node = 0;
   if (tolink)
     tolink->prev_node = a_tcp;
-  tcp_stream_table[hash_index] = a_tcp;
-  a_tcp->next_time = tcp_latest;
+  HP_params[FIFO_NO].tcp_stream_table[hash_index] = a_tcp;
+  a_tcp->next_time = HP_params[FIFO_NO].tcp_latest;
   a_tcp->prev_time = 0;
-  if (!tcp_oldest)
-    tcp_oldest = a_tcp;
-  if (tcp_latest)
-    tcp_latest->prev_time = a_tcp;
-  tcp_latest = a_tcp;
+  if (!HP_params[FIFO_NO].tcp_oldest)
+    HP_params[FIFO_NO].tcp_oldest = a_tcp;
+  if (HP_params[FIFO_NO].tcp_latest)
+    HP_params[FIFO_NO].tcp_latest->prev_time = a_tcp;
+  HP_params[FIFO_NO].tcp_latest = a_tcp;
 }
 
 static void
@@ -429,7 +446,7 @@ static void
 add_from_skb(struct tcp_stream * a_tcp, struct half_stream * rcv,
 	     struct half_stream * snd,
 	     u_char *data, int datalen,
-	     u_int this_seq, char fin, char urg, u_int urg_ptr)
+	     u_int this_seq, char fin, char urg, u_int urg_ptr,int FIFO_NO)
 {
   u_int lost = EXP_SEQ - this_seq;
   int to_copy, to_copy2;
@@ -485,14 +502,14 @@ add_from_skb(struct tcp_stream * a_tcp, struct half_stream * rcv,
   if (fin) {
     snd->state = FIN_SENT;
     if (rcv->state == TCP_CLOSING)
-      add_tcp_closing_timeout(a_tcp);
+      add_tcp_closing_timeout(a_tcp,FIFO_NO);
   }
 }
 
 static void
 tcp_queue(struct tcp_stream * a_tcp, struct tcphdr * this_tcphdr,
 	  struct half_stream * snd, struct half_stream * rcv,
-	  char *data, int datalen, int skblen
+	  char *data, int datalen, int skblen,int FIFO_NO
 	  )
 {
   u_int this_seq = ntohl(this_tcphdr->th_seq);
@@ -509,7 +526,7 @@ tcp_queue(struct tcp_stream * a_tcp, struct tcphdr * this_tcphdr,
       add_from_skb(a_tcp, rcv, snd, (u_char *)data, datalen, this_seq,
 		   (this_tcphdr->th_flags & TH_FIN),
 		   (this_tcphdr->th_flags & TH_URG),
-		   ntohs(this_tcphdr->th_urp) + this_seq - 1);
+		   ntohs(this_tcphdr->th_urp) + this_seq - 1,FIFO_NO);
       /*
        * Do we have any old packets to ack that the above
        * made visible? (Go forward from skb)
@@ -521,7 +538,7 @@ tcp_queue(struct tcp_stream * a_tcp, struct tcphdr * this_tcphdr,
 	if (after(pakiet->seq + pakiet->len + pakiet->fin, EXP_SEQ)) {
 	  add_from_skb(a_tcp, rcv, snd, pakiet->data,
 		       pakiet->len, pakiet->seq, pakiet->fin, pakiet->urg,
-		       pakiet->urg_ptr + pakiet->seq - 1);
+		       pakiet->urg_ptr + pakiet->seq - 1,FIFO_NO);
         }
 	rcv->rmem_alloc -= pakiet->truesize;
 	if (pakiet->prev)
@@ -564,7 +581,7 @@ tcp_queue(struct tcp_stream * a_tcp, struct tcphdr * this_tcphdr,
     if (pakiet->fin) {
       snd->state = TCP_CLOSING;
       if (rcv->state == FIN_SENT || rcv->state == FIN_CONFIRMED)
-	add_tcp_closing_timeout(a_tcp);
+	add_tcp_closing_timeout(a_tcp,FIFO_NO);
     }
     pakiet->seq = this_seq;
     pakiet->urg = (this_tcphdr->th_flags & TH_URG);
@@ -596,11 +613,11 @@ tcp_queue(struct tcp_stream * a_tcp, struct tcphdr * this_tcphdr,
 }
 
 static void
-prune_queue(struct half_stream * rcv, struct tcphdr * this_tcphdr)
+prune_queue(struct half_stream * rcv, struct tcphdr * this_tcphdr,int FIFO_NO)
 {
   struct skbuff *tmp, *p = rcv->list;
 
-  nids_params.syslog(NIDS_WARN_TCP, NIDS_WARN_TCP_BIGQUEUE, ugly_iphdr, this_tcphdr);
+  nids_params.syslog(NIDS_WARN_TCP, NIDS_WARN_TCP_BIGQUEUE, HP_params[FIFO_NO].ugly_iphdr, this_tcphdr);
   while (p) {
     free(p->data);
     tmp = p->next;
@@ -634,7 +651,7 @@ check_flags(struct ip * iph, struct tcphdr * th)
 
 struct tcp_stream *
 find_stream(struct tcphdr * this_tcphdr, struct ip * this_iphdr,
-	    int *from_client)
+	    int *from_client,int FIFO_NO)
 {
   struct tuple4 this_addr, reversed;
   struct tcp_stream *a_tcp;
@@ -643,7 +660,7 @@ find_stream(struct tcphdr * this_tcphdr, struct ip * this_iphdr,
   this_addr.dest = ntohs(this_tcphdr->th_dport);
   this_addr.saddr = this_iphdr->ip_src.s_addr;
   this_addr.daddr = this_iphdr->ip_dst.s_addr;
-  a_tcp = nids_find_tcp_stream(&this_addr);
+  a_tcp = nids_find_tcp_stream(&this_addr,FIFO_NO);
   if (a_tcp) {
     *from_client = 1;
     return a_tcp;
@@ -652,7 +669,7 @@ find_stream(struct tcphdr * this_tcphdr, struct ip * this_iphdr,
   reversed.dest = ntohs(this_tcphdr->th_sport);
   reversed.saddr = this_iphdr->ip_dst.s_addr;
   reversed.daddr = this_iphdr->ip_src.s_addr;
-  a_tcp = nids_find_tcp_stream(&reversed);
+  a_tcp = nids_find_tcp_stream(&reversed,FIFO_NO);
   if (a_tcp) {
     *from_client = 0;
     return a_tcp;
@@ -661,29 +678,29 @@ find_stream(struct tcphdr * this_tcphdr, struct ip * this_iphdr,
 }
 
 struct tcp_stream *
-nids_find_tcp_stream(struct tuple4 *addr)
+nids_find_tcp_stream(struct tuple4 *addr,int FIFO_NO)
 {
   int hash_index;
   struct tcp_stream *a_tcp;
 
-  hash_index = mk_hash_index(*addr);
-  for (a_tcp = tcp_stream_table[hash_index];
+  hash_index = mk_hash_index(*addr,FIFO_NO);
+  for (a_tcp = HP_params[FIFO_NO].tcp_stream_table[hash_index];
        a_tcp && memcmp(&a_tcp->addr, addr, sizeof (struct tuple4));
        a_tcp = a_tcp->next_node);
   return a_tcp ? a_tcp : 0;
 }
 
 
-void tcp_exit(void)
+void tcp_exit(int FIFO_NO)
 {
   int i;
   struct lurker_node *j;
   struct tcp_stream *a_tcp, *t_tcp;
 
-  if (!tcp_stream_table || !streams_pool)
+  if (!HP_params[FIFO_NO].tcp_stream_table || !HP_params[FIFO_NO].streams_pool)
     return;
-  for (i = 0; i < tcp_stream_table_size; i++) {
-    a_tcp = tcp_stream_table[i];
+  for (i = 0; i < HP_params[FIFO_NO].tcp_stream_table_size; i++) {
+    a_tcp = HP_params[FIFO_NO].tcp_stream_table[i];
     while(a_tcp) {
       t_tcp = a_tcp;
       a_tcp = a_tcp->next_node;
@@ -691,21 +708,21 @@ void tcp_exit(void)
           t_tcp->nids_state = NIDS_EXITING;
 	  (j->item)(t_tcp, &j->data);
       }
-      nids_free_tcp_stream(t_tcp);
+      nids_free_tcp_stream(t_tcp,FIFO_NO);
     }
   }
-  free(tcp_stream_table);
-  tcp_stream_table = NULL;
-  free(streams_pool);
-  streams_pool = NULL;
+  free(HP_params[FIFO_NO].tcp_stream_table);
+  HP_params[FIFO_NO].tcp_stream_table = NULL;
+  free(HP_params[FIFO_NO].streams_pool);
+  HP_params[FIFO_NO].streams_pool = NULL;
   /* FIXME: anything else we should free? */
   /* yes plz.. */
-  tcp_latest = tcp_oldest = NULL;
-  tcp_num = 0;
+  HP_params[FIFO_NO].tcp_latest = HP_params[FIFO_NO].tcp_oldest = NULL;
+  HP_params[FIFO_NO].tcp_num = 0;
 }
 
 void
-process_tcp(u_char * data, int skblen)
+process_tcp(u_char * data, int skblen,int FIFO_NO)
 {
   struct ip *this_iphdr = (struct ip *)data;
   struct tcphdr *this_tcphdr = (struct tcphdr *)(data + 4 * this_iphdr->ip_hl);
@@ -715,7 +732,7 @@ process_tcp(u_char * data, int skblen)
   struct tcp_stream *a_tcp;
   struct half_stream *snd, *rcv;
 
-  ugly_iphdr = this_iphdr;
+  HP_params[FIFO_NO].ugly_iphdr = this_iphdr;
   iplen = ntohs(this_iphdr->ip_len);
   if ((unsigned)iplen < 4 * this_iphdr->ip_hl + sizeof(struct tcphdr)) {
     nids_params.syslog(NIDS_WARN_TCP, NIDS_WARN_TCP_HDR, this_iphdr,
@@ -749,11 +766,11 @@ process_tcp(u_char * data, int skblen)
   check_flags(this_iphdr, this_tcphdr);
 //ECN
 #endif
-  if (!(a_tcp = find_stream(this_tcphdr, this_iphdr, &from_client))) {
+  if (!(a_tcp = find_stream(this_tcphdr, this_iphdr, &from_client,FIFO_NO))) {
     if ((this_tcphdr->th_flags & TH_SYN) &&
 	!(this_tcphdr->th_flags & TH_ACK) &&
 	!(this_tcphdr->th_flags & TH_RST))
-      add_new_tcp(this_tcphdr, this_iphdr);
+      add_new_tcp(this_tcphdr, this_iphdr,FIFO_NO);
     return;
   }
   if (from_client) {
@@ -810,7 +827,7 @@ process_tcp(u_char * data, int skblen)
       for (i = a_tcp->listeners; i; i = i->next)
 	(i->item) (a_tcp, &i->data);
     }
-    nids_free_tcp_stream(a_tcp);
+    nids_free_tcp_stream(a_tcp,FIFO_NO);
     return;
   }
 
@@ -868,7 +885,7 @@ process_tcp(u_char * data, int skblen)
 	    }
 	  }
 	  if (!a_tcp->listeners) {
-	    nids_free_tcp_stream(a_tcp);
+	    nids_free_tcp_stream(a_tcp,FIFO_NO);
 	    return;
 	  }
 	  a_tcp->nids_state = NIDS_DATA;
@@ -887,19 +904,19 @@ process_tcp(u_char * data, int skblen)
       a_tcp->nids_state = NIDS_CLOSE;
       for (i = a_tcp->listeners; i; i = i->next)
 	(i->item) (a_tcp, &i->data);
-      nids_free_tcp_stream(a_tcp);
+      nids_free_tcp_stream(a_tcp,FIFO_NO);
       return;
     }
   }
   if (datalen + (this_tcphdr->th_flags & TH_FIN) > 0)
     tcp_queue(a_tcp, this_tcphdr, snd, rcv,
 	      (char *) (this_tcphdr) + 4 * this_tcphdr->th_off,
-	      datalen, skblen);
+	      datalen, skblen,FIFO_NO);
   snd->window = ntohs(this_tcphdr->th_win);
   if (rcv->rmem_alloc > 65535)
-    prune_queue(rcv, this_tcphdr);
+    prune_queue(rcv, this_tcphdr,FIFO_NO);
   if (!a_tcp->listeners)
-    nids_free_tcp_stream(a_tcp);
+    nids_free_tcp_stream(a_tcp,FIFO_NO);
 }
 
 void
@@ -924,31 +941,40 @@ nids_unregister_tcp(void (*x))
 int
 tcp_init(int size)
 {
-  int i;
+  int i,j;
   struct tcp_timeout *tmp;
-
-  if (!size) return 0;
-  tcp_stream_table_size = size;
-  tcp_stream_table = calloc(tcp_stream_table_size, sizeof(char *));
-  if (!tcp_stream_table) {
-    nids_params.no_mem("tcp_init");
-    return -1;
+  for(j=0;j<cpu_num;j++)
+  {
+    HP_params[j].tcp_num=0;
+    HP_params[j].tcp_oldest=0;
+    HP_params[j].tcp_latest=0;
+    if (!size) return 0;
+    HP_params[j].tcp_stream_table_size = size;
+    HP_params[j].tcp_stream_table = calloc(HP_params[j].tcp_stream_table_size, sizeof(char *));
+    if (!HP_params[j].tcp_stream_table) {
+      nids_params.no_mem("tcp_init");
+      return -1;
+    }
+    nids_tcp_timeouts[j]=0;
+    HP_params[j].max_stream = 3 * HP_params[j].tcp_stream_table_size / 4;
+    HP_params[j].streams_pool = (struct tcp_stream *) malloc((HP_params[j].max_stream + 1) * sizeof(struct tcp_stream));
+    if (!HP_params[j].streams_pool) {
+      nids_params.no_mem("tcp_init");
+      return -1;
+    }
+    for (i = 0; i < HP_params[j].max_stream; i++)
+      HP_params[j].streams_pool[i].next_free = &(HP_params[j].streams_pool[i + 1]);
+    HP_params[j].streams_pool[HP_params[j].max_stream].next_free = 0;
+    HP_params[j].free_streams = HP_params[j].streams_pool;
   }
-  max_stream = 3 * tcp_stream_table_size / 4;
-  streams_pool = (struct tcp_stream *) malloc((max_stream + 1) * sizeof(struct tcp_stream));
-  if (!streams_pool) {
-    nids_params.no_mem("tcp_init");
-    return -1;
-  }
-  for (i = 0; i < max_stream; i++)
-    streams_pool[i].next_free = &(streams_pool[i + 1]);
-  streams_pool[max_stream].next_free = 0;
-  free_streams = streams_pool;
   init_hash();
-  while (nids_tcp_timeouts) {
-    tmp = nids_tcp_timeouts->next;
-    free(nids_tcp_timeouts);
-    nids_tcp_timeouts = tmp;
+  for(j=0;j<cpu_num;j++) 
+  {      
+    while (nids_tcp_timeouts[j]) {
+        tmp = nids_tcp_timeouts[j]->next;
+        free(nids_tcp_timeouts[j]);
+        nids_tcp_timeouts[j] = tmp;
+      }
   }
   return 0;
 }
@@ -972,7 +998,7 @@ tcp_init(int size)
 
 
 void
-process_icmp(u_char * data)
+process_icmp(u_char * data,int FIFO_NO)
 {
   struct ip *iph = (struct ip *) data;
   struct ip *orig_ip;
@@ -1020,7 +1046,7 @@ process_icmp(u_char * data)
   if (orig_ip->ip_p != IPPROTO_TCP)
     return;
   th = (struct tcphdr *) (((char *) orig_ip) + (orig_ip->ip_hl << 2));
-  if (!(a_tcp = find_stream(th, orig_ip, &from_client)))
+  if (!(a_tcp = find_stream(th, orig_ip, &from_client,FIFO_NO)))
     return;
   if (a_tcp->addr.dest == iph->ip_dst.s_addr)
     hlf = &a_tcp->server;
@@ -1031,5 +1057,5 @@ process_icmp(u_char * data)
   a_tcp->nids_state = NIDS_RESET;
   for (i = a_tcp->listeners; i; i = i->next)
     (i->item) (a_tcp, &i->data);
-  nids_free_tcp_stream(a_tcp);
+  nids_free_tcp_stream(a_tcp,FIFO_NO);
 }

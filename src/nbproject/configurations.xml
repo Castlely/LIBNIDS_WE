@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configurationDescriptor version="84">
+  <logicalFolder name="root" displayName="root" projectFiles="true" kind="ROOT">
+    <df name="src" root=".">
+      <in>allpromisc.c</in>
+      <in>checksum.c</in>
+      <in>checksum.h</in>
+      <in>config.h</in>
+      <in>hash.c</in>
+      <in>hash.h</in>
+      <in>ip_fragment.c</in>
+      <in>ip_fragment.h</in>
+      <in>ip_options.c</in>
+      <in>killtcp.c</in>
+      <in>libnids.c</in>
+      <in>nids.h</in>
+      <in>scan.c</in>
+      <in>scan.h</in>
+      <in>tcp.c</in>
+      <in>tcp.h</in>
+      <in>util.c</in>
+      <in>util.h</in>
+    </df>
+    <logicalFolder name="ExternalFiles"
+                   displayName="重要文件"
+                   projectFiles="false"
+                   kind="IMPORTANT_FILES_FOLDER">
+      <itemPath>Makefile</itemPath>
+    </logicalFolder>
+  </logicalFolder>
+  <sourceFolderFilter>^(nbproject)$</sourceFolderFilter>
+  <sourceRootList>
+    <Elem>.</Elem>
+  </sourceRootList>
+  <projectmakefile>Makefile</projectmakefile>
+  <confs>
+    <conf name="Default" type="0">
+      <toolsSet>
+        <remote-sources-mode>LOCAL_SOURCES</remote-sources-mode>
+        <compilerSet>default</compilerSet>
+      </toolsSet>
+      <codeAssistance>
+      </codeAssistance>
+      <makefileType>
+        <makeTool>
+          <buildCommandWorkingDir>.</buildCommandWorkingDir>
+          <buildCommand>${MAKE} -f Makefile</buildCommand>
+          <cleanCommand>${MAKE} -f Makefile clean</cleanCommand>
+          <executablePath></executablePath>
+          <cTool>
+            <incDir>
+              <pElem>/usr/include/glib-2.0</pElem>
+              <pElem>/usr/lib/x86_64-linux-gnu/glib-2.0/include</pElem>
+              <pElem>.</pElem>
+              <pElem>/usr/local/include</pElem>
+            </incDir>
+            <preprocessorList>
+              <Elem>HAVE_BSD_UDPHDR=1</Elem>
+              <Elem>HAVE_ICMPHDR=1</Elem>
+              <Elem>HAVE_NET_ETHERNET_H</Elem>
+              <Elem>HAVE_TCP_STATES=1</Elem>
+              <Elem>LIBNET_VER=1</Elem>
+              <Elem>_BSD_SOURCE</Elem>
+              <Elem>__BSD_SOURCE</Elem>
+              <Elem>__FAVOR_BSD</Elem>
+            </preprocessorList>
+          </cTool>
+        </makeTool>
+      </makefileType>
+    </conf>
+  </confs>
+</configurationDescriptor>

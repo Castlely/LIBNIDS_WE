@@ -111,6 +111,19 @@ main ()
 {
   // here we can alter libnids params, for instance:
   // nids_params.n_hosts=256;
+	nids_params.device="wlan0";
+
+	struct nids_chksum_ctl temp;
+
+	temp.netaddr = 0;
+
+	temp.mask = 0;
+
+	temp.action =  NIDS_DONT_CHKSUM;
+	nids_register_chksum_ctl(&temp,1); //shuzu changdu 1
+	//nids_params.filename="";///home/feng/test.txt";
+
+
   if (!nids_init ())
   {
   	fprintf(stderr,"%s\n",nids_errbuf);
@@ -120,4 +133,3 @@ main ()
   nids_run ();
   return 0;
 }
-
